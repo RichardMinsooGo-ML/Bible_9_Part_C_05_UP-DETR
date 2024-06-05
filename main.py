@@ -5,17 +5,18 @@
 # Modified from DETR (https://github.com/facebookresearch/detr)
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 # ------------------------------------------------------------------------
-import argparse
 import datetime
 import json
 import random
 import time
+import argparse
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
+import datasets
 import util.misc as utils
 from datasets import build_dataset
 from engine import train_one_epoch
@@ -27,7 +28,7 @@ def get_args_parser():
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=60, type=int)
+    parser.add_argument('--epochs', default=50, type=int)
     parser.add_argument('--lr_drop', default=40, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
@@ -45,7 +46,7 @@ def get_args_parser():
                         help="Number of encoding layers in the transformer")
     parser.add_argument('--dec_layers', default=6, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--dim_feedforward', default=2048, type=int,
+    parser.add_argument('--dim_feedforward', default=1024, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
     parser.add_argument('--hidden_dim', default=256, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
@@ -55,12 +56,13 @@ def get_args_parser():
                         help="Number of attention heads inside the transformer's attentions")
     parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
-    parser.add_argument('--num_patches', default=10, type=int, help='number of query patches')
     parser.add_argument('--pre_norm', action='store_true')
+    parser.add_argument('--num_patches', default=10, type=int, help='number of query patches')
 
     # Loss
     parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
                         help="Disables auxiliary decoding losses (loss at each layer)")
+
     # * Matcher
     parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost")
@@ -68,6 +70,7 @@ def get_args_parser():
                         help="L1 box coefficient in the matching cost")
     parser.add_argument('--set_cost_giou', default=2, type=float,
                         help="giou box coefficient in the matching cost")
+
     # * Loss coefficients
     parser.add_argument('--mask_loss_coef', default=1, type=float)
     parser.add_argument('--dice_loss_coef', default=1, type=float)
@@ -75,6 +78,12 @@ def get_args_parser():
     parser.add_argument('--giou_loss_coef', default=2, type=float)
     parser.add_argument('--eos_coef', default=0.1, type=float,
                         help="Relative classification weight of the no-object class")
+
+    # dataset parameters
+    parser.add_argument('--dataset_file', default='coco')
+    parser.add_argument('--coco_path', default='./dataset/coco', type=str)
+    parser.add_argument('--coco_panoptic_path', type=str)
+    parser.add_argument('--remove_difficult', action='store_true')
 
     parser.add_argument('--output_dir', default='',
                         help='path where to save, empty for no saving')
@@ -85,7 +94,7 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
-    parser.add_argument('--num_workers', default=16, type=int)
+    parser.add_argument('--num_workers', default=8, type=int)
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -112,7 +121,8 @@ def main(args):
     args.lr_backbone = 0 if args.fre_cnn else args.lr
     print(args)
 
-    device = torch.device(args.device)
+    # ---------------------------- Build CUDA ----------------------------
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
@@ -120,8 +130,14 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
+    dataset_train = build_dataset(image_set='train', args=args)
+    dataset_val   = build_dataset(image_set='val', args=args)
+    
+    # ---------------------------- Build model ----------------------------
+    ## Build model
     model, criterion, postprocessors = build_model(args)
     model.to(device)
+    criterion.to(device)
 
     model_without_ddp = model
     if args.distributed:
@@ -179,8 +195,8 @@ def main(args):
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
-            # extra checkpoint before LR drop and every 20 epochs
-            if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 20 == 0:
+            # extra checkpoint before LR drop and every 5 epochs
+            if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0:
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
