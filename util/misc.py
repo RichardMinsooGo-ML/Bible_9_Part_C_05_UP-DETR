@@ -21,10 +21,11 @@ from typing import Optional, List
 import torch
 import torch.distributed as dist
 from torch import Tensor
+from packaging.version import Version
 
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
-if float(torchvision.__version__.split(".")[1]) < 7.0:
+if Version(torchvision.__version__) < Version('0.7.0'):
     from torchvision.ops import _new_empty_tensor
     from torchvision.ops.misc import _output_size
 
@@ -276,12 +277,6 @@ def collate_fn(batch):
     batch[0] = nested_tensor_from_tensor_list(batch[0])
     return tuple(batch)
 
-def updetr_collate_fn(batch):
-    batch = list(zip(*batch))
-    batch[0] = nested_tensor_from_tensor_list(batch[0])
-    batch[1] = torch.stack(batch[1], dim=0)
-    return tuple(batch)
-
 
 def _max_by_axis(the_list):
     # type: (List[List[int]]) -> List[int]
@@ -290,6 +285,12 @@ def _max_by_axis(the_list):
         for index, item in enumerate(sublist):
             maxes[index] = max(maxes[index], item)
     return maxes
+def updetr_collate_fn(batch):
+    batch = list(zip(*batch))
+    batch[0] = nested_tensor_from_tensor_list(batch[0])
+    batch[1] = torch.stack(batch[1], dim=0)
+    return tuple(batch)
+
 
 
 class NestedTensor(object):
