@@ -5,11 +5,13 @@
 # Modified from DETR (https://github.com/facebookresearch/detr)
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 # ------------------------------------------------------------------------
+
+
+import argparse
 import datetime
 import json
 import random
 import time
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -54,7 +56,7 @@ def get_args_parser():
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=8, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=100, type=int,
+    parser.add_argument('--num_queries', default=300, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
     parser.add_argument('--num_patches', default=10, type=int, help='number of query patches')
@@ -115,14 +117,14 @@ def main(args):
     print("git:\n  {}\n".format(utils.get_sha()))
 
     # align with DETR format
-    args.dataset_file = 'ImageNet'
+    # args.dataset_file = 'ImageNet'
     args.masks = None
     # freeze cnn weights
     args.lr_backbone = 0 if args.fre_cnn else args.lr
     print(args)
 
     # ---------------------------- Build CUDA ----------------------------
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(args.device)
 
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
